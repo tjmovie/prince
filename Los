@@ -1,0 +1,180 @@
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      
+
+name: CI
+
+ 
+
+on: [push, workflow_dispatch]
+
+ 
+
+jobs:
+
+  build:
+
+    runs-on: windows-latest
+
+ 
+
+    steps:
+
+    - name: Download
+
+      run: Invoke-WebRequest https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+
+ 
+
+    - name: Extract
+
+      run: Expand-Archive ngrok.zip
+
+ 
+
+    - name: Auth
+
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+
+      env:
+
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+ 
+
+    - name: Enable TS
+
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+
+ 
+
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+ 
+
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+
+ 
+
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+
+ 
+
+    - name: Start ngrok in the background
+
+      run: Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389"
+
+ 
+
+    - name: Wait for ngrok to start
+
+      run: Start-Sleep -Seconds 5
+
+ 
+
+    - name: Get ngrok tunnel information
+
+      run: |
+
+        $maxAttempts = 20
+
+        $attempts = 0
+
+        $ngrokApi = $null
+
+ 
+
+        while (($null -eq $ngrokApi) -and ($attempts -lt $maxAttempts)) {
+
+          $attempts += 1
+
+          try {
+
+            $ngrokApi = Invoke-WebRequest "http://localhost:4040/api/tunnels"
+
+          } catch {
+
+            Write-Host "Waiting for ngrok API... (attempt $attempts of $maxAttempts)"
+
+            Start-Sleep -Seconds 5
+
+          }
+
+        }
+
+ 
+
+        if ($null -eq $ngrokApi) {
+
+          throw "Failed to connect to ngrok API after $maxAttempts attempts."
+
+        }
+
+ 
+
+        $ngrokUrl = ($ngrokApi | ConvertFrom-Json).tunnels[0].public_url
+
+        Write-Host "Ngrok URL: $ngrokUrl"
+
+ 
+
+    - name: Wait before cleanup
+
+      run: Start-Sleep -Seconds 3600
+
+ 
+
+    - name: Cleanup
+
+      if: always()
+
+      run: |
+
+        $ngrokProcess = Get-Process -Name "ngrok" -ErrorAction SilentlyContinue
+
+        if ($null -ne $ngrokProcess) {
+
+          Write-Host "Terminating ngrok process..."
+
+          $ngrokProcess | Stop-Process -Force
+
+        } else {
+
+          Write-Host "Ngrok process not found."
+
+        }
+
+ 
+
+    - name: Cleanup
+
+      if: always()
+
+      run: |
+
+        $ngrokProcess = Get-Process -Name "ngrok" -ErrorAction SilentlyContinue
+
+        if ($null -ne $ngrokProcess) {
+
+          Write-Host "Terminating ngrok process..."
+
+          $ngrokProcess | Stop-Process -Force
+
+        } else {
+
+          Write-Host "Ngrok process not found."
+
+        }
